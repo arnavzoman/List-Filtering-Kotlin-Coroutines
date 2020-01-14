@@ -1,7 +1,6 @@
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.*
-import kotlinx.coroutines.flow.*
-import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.consumeEach
 
 private fun getItems() = listOf<Item>(
     Item("Ecratic", "Forest Place"),
@@ -137,13 +136,11 @@ private fun getItems() = listOf<Item>(
     Item("Pasturia", "Wallabout Street"),
     Item("Portica", "Adams Street"),
     Item("Genekom", "Monitor Street"),
-    Item("Xeronk", "Herzl Street"),
-    Item("Aquamate", "Lincoln Avenue")
+    Item("Xeronk", "Herzl Street")
 )
 
 val DEBUG = false
-private fun debugln(message: Any) = if (DEBUG) println(message) else { /* noop*/
-}
+private fun debugln(message: Any) = if (DEBUG) println(message) else { /* noop*/ }
 
 fun main() {
     val items = getItems()
@@ -188,7 +185,7 @@ suspend fun <T> filterList(list: List<T>, queryString: String, vararg filters: Q
     )
     coroutineScope {
         val collector = newSingleThreadContext("collector")
-        val filteringDispatcher = newFixedThreadPoolContext(4,"filter")
+        val filteringDispatcher = newFixedThreadPoolContext(4, "filter")
 
         filterChannels.forEach { (_, channel) ->
             launch {
@@ -205,24 +202,23 @@ suspend fun <T> filterList(list: List<T>, queryString: String, vararg filters: Q
         }
 
         list.mapIndexed { index, item ->
-            launch {
-                filters.forEach { filter ->
+            launch(filteringDispatcher) {
+                for (filter in filters) {
                     if (filter.isItemValid(item, queryString)) {
                         println("${item}, ${filter}, ${Thread.currentThread().name}")
                         filterChannels[filter]?.send(item)
-                        if (index == list.lastIndex) {
-                            filterChannels[filter]?.close()
-                        }
-                        return@launch
-                    }
-                    if (index == list.lastIndex) {
-                        launch {
-                            delay(1)
-                            filterChannels[filter]?.close()
-                        }
+                        break
                     }
                 }
+                if (index == list.lastIndex) {
+                    filters.forEach { filter ->
+                        println("Closing channel $filter ${Thread.currentThread().name}")
+                        filterChannels[filter]?.close()
+                    }
+                    filteringDispatcher.close()
+                }
             }
+
 
         }
     }
